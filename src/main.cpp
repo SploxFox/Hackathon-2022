@@ -18,8 +18,8 @@
 #include <stdio.h>
 #include <math.h>
 
-
-SPIFlash flash;
+SPIFlash flash(18);
+SFE_BMP180 pressure;
 
 struct FlightData {
   double pressure;
@@ -29,6 +29,8 @@ struct FlightData {
 
 FlightData data;
 uint32_t addr = 0;
+uint16_t sentinel = 0x0fac;
+unsigned long start = millis();
 
 void setup() {
   Serial.begin(9600); //This pipes to the serial monitor
@@ -69,36 +71,108 @@ void printDouble( double val, byte precision){
 }
 
 void loop() {
-  /*while (flash.readByte(addr) != 0xFF) {
-    addr++;
+  while (flash.readByte(addr) == 0x00) {
+    addr += sizeof(FlightData) + 1;
   }
 
-  Serial.println("Found open address %06x", addr);*/
+  Serial.println("Found open address:");
+  Serial.println(addr);
 
   if (!!Serial) {
     // In flight
 
-    flash.writeByte(addr, 0);
+    storePressureAndTemperature();
+    data.time = millis() - start;
+
+    flash.writeByte(addr, 0x00);
     flash.writeAnything(addr + 1, data);
     addr += sizeof(FlightData) + 1;
   } else {
     // Plugged in
 
-    Serial.println("Time,Pressure,Temperature");
+    Serial.print("Time,Pressure,Temperature\n");
     while (flash.readByte(addr) != 0x00) {
       flash.readByte(addr);
       flash.readAnything(addr + 1, data);
-      
-      Serial.println(data.time, data.pressure, data.temperature);
+    
+      printDouble(data.time, 6);
+      Serial.print(",");
+      printDouble(data.pressure, 6);
+      Serial.print(",");
+      printDouble(data.temperature, 6);
+      Serial.print("\n");
       addr += sizeof(FlightData) + 1;
     }
 
-    while (true) {
+    Serial.print(" --- Would you like to erase the chip? (yes/no)");
 
+    while (!Serial.available()) {
+      // Wait
+    }
+
+    if (Serial.readString().equals("yes")) {
+      Serial.println("Erasing... (this may take a few minutes)");
+      flash.eraseChip();
+      Serial.println("Finished erasing.");
+      addr = 0x00;
     }
   }
 }
 
+void storePressureAndTemperature() {
+  char status;
+  double T,P;
 
+  // You must first get a temperature measurement to perform a pressure reading.
+  
+  // Start a temperature measurement:
+  // If request is successful, the number of ms to wait is returned.
+  // If request is unsuccessful, 0 is returned.
 
+  status = pressure.startTemperature();
+  if (status != 0)
+  {
+    // Wait for the measurement to complete:
 
+    delay(status);
+
+    // Retrieve the completed temperature measurement:
+    // Note that the measurement is stored in the variable T.
+    // Use '&T' to provide the address of T to the function.
+    // Function returns 1 if successful, 0 if failure.
+
+    status = pressure.getTemperature(T);
+    if (status != 0)
+    {
+      // Start a pressure measurement:
+      // The parameter is the oversampling setting, from 0 to 3 (highest res, longest wait).
+      // If request is successful, the number of ms to wait is returned.
+      // If request is unsuccessful, 0 is returned.
+
+      status = pressure.startPressure(3);
+      if (status != 0)
+      {
+        // Wait for the measurement to complete:
+        delay(status);
+
+        // Retrieve the completed pressure measurement:
+        // Note that the measurement is stored in the variable P.
+        // Use '&P' to provide the address of P.
+        // Note also that the function requires the previous temperature measurement (T).
+        // (If temperature is stable, you can do one temperature measurement for a number of pressure measurements.)
+        // Function returns 1 if successful, 0 if failure.
+
+        status = pressure.getPressure(P,T);
+        if (status != 0)
+        {
+          data.temperature = T;
+          data.pressure = P;
+        }
+        else Serial.println("error retrieving pressure measurement\n");
+      }
+      else Serial.println("error starting pressure measurement\n");
+    }
+    else Serial.println("error retrieving temperature measurement\n");
+  }
+  else Serial.println("error starting temperature measurement\n");
+}
