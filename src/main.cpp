@@ -11,6 +11,7 @@
    to explain the difference between Serial.print() and
    Serial1.print().
 */
+
 #include <Arduino.h>
 #include <SPIMemory.h>
 #include <SFE_BMP180.h>
@@ -31,16 +32,6 @@ FlightData data;
 uint32_t addr = 0;
 uint16_t sentinel = 0x0fac;
 unsigned long start = millis();
-
-void setup() {
-  Serial.begin(9600); //This pipes to the serial monitor
-  Serial.println("Initialize Serial Monitor");
-
-  Serial1.begin(9600); //This is the UART, pipes to sensors attached to board
-  Serial1.println("Initialize Serial Hardware UART Pins");
-
-  flash.begin();
-}
 
 // https://forum.arduino.cc/t/printing-a-double-variable/44327/7
 void printDouble( double val, byte precision){
@@ -68,56 +59,13 @@ void printDouble( double val, byte precision){
       Serial.print("0");
     Serial.print(frac,DEC) ;
   }
+
+  
 }
 
 void loop() {
-  while (flash.readByte(addr) == 0x00) {
-    addr += sizeof(FlightData) + 1;
-  }
-
-  Serial.println("Found open address:");
-  Serial.println(addr);
-
-  if (!!Serial) {
-    // In flight
-
-    storePressureAndTemperature();
-    data.time = millis() - start;
-
-    flash.writeByte(addr, 0x00);
-    flash.writeAnything(addr + 1, data);
-    addr += sizeof(FlightData) + 1;
-  } else {
-    // Plugged in
-
-    Serial.print("Time,Pressure,Temperature\n");
-    while (flash.readByte(addr) != 0x00) {
-      flash.readByte(addr);
-      flash.readAnything(addr + 1, data);
-    
-      printDouble(data.time, 6);
-      Serial.print(",");
-      printDouble(data.pressure, 6);
-      Serial.print(",");
-      printDouble(data.temperature, 6);
-      Serial.print("\n");
-      addr += sizeof(FlightData) + 1;
-    }
-
-    Serial.print(" --- Would you like to erase the chip? (yes/no)");
-
-    while (!Serial.available()) {
-      // Wait
-    }
-
-    if (Serial.readString().equals("yes")) {
-      Serial.println("Erasing... (this may take a few minutes)");
-      flash.eraseChip();
-      Serial.println("Finished erasing.");
-      addr = 0x00;
-    }
-  }
-}
+  
+} 
 
 void storePressureAndTemperature() {
   char status;
@@ -175,4 +123,64 @@ void storePressureAndTemperature() {
     else Serial.println("error retrieving temperature measurement\n");
   }
   else Serial.println("error starting temperature measurement\n");
+}
+
+void setup() {
+  Serial.begin(9600); //This pipes to the serial monitor
+  Serial.println("Initialize Serial Monitor");
+
+  Serial1.begin(9600); //This is the UART, pipes to sensors attached to board
+  Serial1.println("Initialize Serial Hardware UART Pins");
+
+  flash.begin();
+
+  delay(1000);
+
+  while (flash.readByte(addr) == 0x00) {
+    addr += sizeof(FlightData) + 1;
+  }
+
+  Serial.println("Found open address:");
+  Serial.println(addr);
+
+  while (!Serial) {
+    Serial.println("In flight.");
+    storePressureAndTemperature();
+    data.time = millis() - start;
+
+    flash.writeByte(addr, 0x00);
+    flash.writeAnything(addr + 1, data);
+    addr += sizeof(FlightData) + 1;
+  }
+    
+
+  // Plugged in
+
+  Serial.println("Plugged in:");
+  Serial.print("Time,Pressure,Temperature\n");
+  while (flash.readByte(addr) != 0xFF) {
+    //flash.readByte(addr);
+    flash.readAnything(addr + 1, data);
+   
+    printDouble(data.time, 6);
+    Serial.print(",");
+    printDouble(data.pressure, 6);
+    Serial.print(",");
+    printDouble(data.temperature, 6);
+    Serial.print("\n");
+    addr += sizeof(FlightData) + 1;
+  }
+
+  Serial.print(" --- Would you like to erase the chip? (y/n)");
+
+  while (!Serial.available()) {
+    // Wait
+  }
+
+  if (Serial.readString().equals("y")) {
+    Serial.println("Erasing... (this may take a few minutes)");
+    flash.eraseChip();
+    Serial.println("Finished erasing.");
+    addr = 0x00;
+  }
 }
